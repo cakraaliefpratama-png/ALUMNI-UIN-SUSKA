@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pendataan Alumni UIN SUSKA RIAU - Teknik Industri</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css">
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script crossorigin src="https://unpkg.com/babel-standalone@6/babel.min.js"></script>
+</head>
+<body class="bg-gray-50 min-h-screen p-6">
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useEffect, useMemo } = React;
+
+    const STORAGE_KEY = 'alumni-uin-suska-riau-ti:v1';
+
+    function uuid() {
+      return Math.random().toString(36).slice(2) + Date.now().toString(36);
+    }
+
+    function toCSV(rows) {
+      const headers = ["No", "Nama Alumni", "Angkatan", "Perusahaan", "Posisi/Jabatan", "Posisi/Pengalaman", "Kontak", "LinkedIn"];
+      const escape = v => `"${String(v).replaceAll('"', '""')}"`;
+      const body = rows.map((r, i) => [i+1, r.nama, r.angkatan, r.perusahaan, r.posisi, r.pengalaman, r.kontak, r.linkedin].map(escape).join(",")).join("\n");
+      return headers.join(",") + "\n" + body + "\n";
+    }
+
+    function fromCSV(text) {
+      const lines = text.split(/\r?\n/).filter(l => l.trim());
+      if (!lines.length) return [];
+      const data = lines.slice(1);
+      return data.map((line, idx) => {
+        const cols = [];
+        let cur = '', inQ = false;
+        for (let i = 0; i < line.length; i++) {
+          const ch = line[i];
+          if (ch === '"') {
+            if (inQ && line[i+1] === '"') { cur += '"'; i++; }
+            else inQ = !inQ;
+          } else if (ch === ',' && !inQ) { cols.push(cur); cur = ''; }
+          else cur += ch;
+        }
+        cols.push(cur);
+        const [no,nama,angkatan,perusahaan,posisi,pengalaman,kontak,linkedin] = cols.map(c => c.replace(/^"|"$/g, ''));
+        return { id: uuid(), no: Number(no)||idx+1, nama, angkatan, perusahaan, posisi, pengalaman, kontak, linkedin };
+      });
+    }
+
+    function App() {
+      const [rows, setRows] = useState([]);
+      const [query, setQuery] = useState('');
+      const [toast, setToast] = useState(null);
+
+      const showToast = (msg) => {
+        setToast(msg);
+        clearTimeout(showToast._t);
+        showToast._t = setTimeout(()=>setToast(null), 2600);
+      };
+
+      useEffect(()=>{
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if(raw) try{setRows(JSON.parse(raw))}catch{}
+      },[]);
+
+      useEffect(()=>{
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(rows));
+      },[rows]);
+
+      const filtered = useMemo(()=>{
+        const q=query.toLowerCase();
+        return rows.filter(r=>Object.values(r).join(' ').toLowerCase().includes(q));
+      },[rows,query]);
+
+      function addRow(){
+        const nama = prompt('Nama Alumni:');
+        if(!nama) return;
+        const angkatan = prompt('Angkatan:');
+        const perusahaan = prompt('Perusahaan:');
+        const posisi = prompt('Posisi/Jabatan:');
+        const pengalaman = prompt('Pengalaman:');
+        const kontak = prompt('Kontak (WA/Email):');
+        const linkedin = prompt('LinkedIn URL:');
+        const newRow = {id:uuid(), no:rows.length+1, nama, angkatan, perusahaan, posisi, pengalaman, kontak, linkedin};
+        setRows([...rows,newRow]);
+        showToast('Data alumni ditambahkan');
+      }
+
+      function removeRow(id){
+        if(!confirm('Hapus data ini?')) return;
+        setRows(rows.filter(r=>r.id!==id).map((r,i)=>({...r,no:i+1})));
+        showToast('Data dihapus');
+      }
+
+      function downloadCSV(){
+        const csv=toCSV(rows);
+        const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
+        const url=URL.createObjectURL(blob);
+        const a=document.createElement('a');
+        a.href=url;a.download='alumni-uin-suska-riau-ti.csv';a.click();
+        URL.revokeObjectURL(url);
+        showToast('CSV diekspor');
+      }
+
+      function handleImport(e){
+        const f=e.target.files[0];
+        if(!f)return;
+        const reader=new FileReader();
+        reader.onload=()=>{
+          const imp=fromCSV(reader.result);
+          if(!imp.length){alert('CSV kosong atau tidak valid');return;}
+          setRows([...rows,...imp].map((r,i)=>({...r,no:i+1})));
+          showToast('CSV diimpor');
+        };
+        reader.readAsText(f);
+      }
+
+      return (
+        <div className="max-w-7xl mx-auto space-y-6">
+          <header className="text-center">
+            <h1 className="text-2xl font-bold">Pendataan Pekerjaan Alumni UIN SUSKA RIAU</h1>
+            <p className="text-sm text-gray-600">Jurusan Teknik Industri</p>
+          </header>
+
+          <div className="flex justify-between items-center flex-wrap gap-2">
+            <input placeholder="Cari alumni..." value={query} onChange={e=>setQuery(e.target.value)} className="border p-2 rounded w-64" />
+            <div className="flex gap-2">
+              <button onClick={downloadCSV} className="bg-gray-200 px-3 py-2 rounded">Ekspor CSV</button>
+              <label className="bg-gray-200 px-3 py-2 rounded cursor-pointer">
+                Impor CSV<input type="file" accept=".csv" className="hidden" onChange={handleImport}/>
+              </label>
+              <button onClick={addRow} className="bg-blue-600 text-white px-3 py-2 rounded">Tambah Alumni</button>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="min-w-full bg-white border border-gray-200 text-sm">
+              <caption className="p-2 text-gray-500">Daftar Alumni UIN SUSKA RIAU - Teknik Industri</caption>
+              <thead className="bg-gray-100">
+                <tr>
+                  {["No","Nama","Angkatan","Perusahaan","Posisi/Jabatan","Pengalaman","Kontak","LinkedIn","Aksi"].map(h=>(<th key={h} className="border p-2">{h}</th>))}
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.length===0?
+                  (<tr><td colSpan="9" className="text-center p-3 text-gray-500">Belum ada data alumni</td></tr>):
+                  filtered.map((r,i)=>(
+                    <tr key={r.id} className="hover:bg-gray-50">
+                      <td className="border p-2 text-center">{i+1}</td>
+                      <td className="border p-2">{r.nama}</td>
+                      <td className="border p-2">{r.angkatan}</td>
+                      <td className="border p-2">{r.perusahaan}</td>
+                      <td className="border p-2">{r.posisi}</td>
+                      <td className="border p-2">{r.pengalaman}</td>
+                      <td className="border p-2">{r.kontak}</td>
+                      <td className="border p-2">{r.linkedin?<a href={r.linkedin} target="_blank" className="text-blue-600 underline">Profil</a>:''}</td>
+                      <td className="border p-2 text-center"><button onClick={()=>removeRow(r.id)} className="text-red-600">Hapus</button></td>
+                    </tr>
+                  ))
+                }
+              </tbody>
+            </table>
+          </div>
+
+          <footer className="text-center text-xs text-gray-500">
+            © 2025 UIN SUSKA RIAU – Jurusan Teknik Industri.
+          </footer>
+
+          {toast && (
+            <div className="fixed left-1/2 bottom-6 -translate-x-1/2 bg-black text-white px-4 py-2 rounded shadow-lg text-sm">{toast}</div>
+          )}
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+  </script>
+</body>
+</html>
